@@ -7,10 +7,31 @@ interface WorldGeneratorConfig {
   minChestDistance: number;
 }
 
+/**
+ * Seeded random number generator
+ */
+class SeededRandom {
+  private seed: number;
+
+  constructor(seed: number) {
+    this.seed = seed;
+  }
+
+  random(): number {
+    const x = Math.sin(this.seed++) * 10000;
+    return x - Math.floor(x);
+  }
+
+  between(min: number, max: number): number {
+    return Math.floor(this.random() * (max - min + 1)) + min;
+  }
+}
+
 export class WorldGenerator {
   private scene: Phaser.Scene;
   private config: WorldGeneratorConfig;
   private groundY: number;
+  private rng: SeededRandom;
 
   public lastGroundX: number = 0;
   public lastChestX: number = 0;
@@ -19,11 +40,14 @@ export class WorldGenerator {
   constructor(
     scene: Phaser.Scene,
     groundY: number,
-    config: WorldGeneratorConfig
+    config: WorldGeneratorConfig,
+    seed: number = Date.now()
   ) {
     this.scene = scene;
     this.groundY = groundY;
     this.config = config;
+    this.rng = new SeededRandom(seed);
+    console.log("🌍 WorldGenerator initialized with seed:", seed);
   }
 
   /**
@@ -85,7 +109,7 @@ export class WorldGenerator {
 
       // 20% chance of lava, but max 3 consecutive, and not in safe zone
       const shouldBeLava =
-        !isInSafeZone && Math.random() < 0.2 && consecutiveLava < 3;
+        !isInSafeZone && this.rng.random() < 0.2 && consecutiveLava < 3;
 
       if (shouldBeLava) {
         lavaGroup.create(x, this.groundY, "lava").setOrigin(0, 0).refreshBody();
@@ -161,7 +185,7 @@ export class WorldGenerator {
       chestGroup.getChildren() as Phaser.Physics.Arcade.Sprite[];
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const randomX = Phaser.Math.Between(startX + 50, endX - 50);
+      const randomX = this.rng.between(startX + 50, endX - 50);
 
       const hasOverlap = existingChests.some(
         (chest) => Math.abs(chest.x - randomX) < this.config.minChestDistance
@@ -182,8 +206,8 @@ export class WorldGenerator {
     );
 
     for (let i = 0; i < numClouds; i++) {
-      const randomX = Phaser.Math.Between(startX, endX);
-      const randomY = Phaser.Math.Between(50, this.groundY - 150);
+      const randomX = this.rng.between(startX, endX);
+      const randomY = this.rng.between(50, this.groundY - 150);
 
       const cloud = this.scene.add.graphics();
       cloud.fillStyle(0xffffff, 0.8);
