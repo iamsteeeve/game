@@ -12,3 +12,12 @@ export const RESPAWN_DELAY = 2500;
 export const LAVA_COLLISION_SHRINK = 7;
 export const LAVA_SPAWN_CHANCE = 0.2;
 export const MAX_CONSECUTIVE_LAVA = 3;
+
+export const CONTROL_STATES = {
+  left: false,
+  right: false,
+  jump: false,
+  shoot: false,
+  poop: false,
+  collect: false,
+};

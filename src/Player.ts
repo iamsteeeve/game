@@ -1,10 +1,36 @@
 import Phaser from "phaser";
+import type { CONTROL_STATES } from "./constants";
+import { Poop } from "./Poop";
+import { CollisionManager } from "./CollisionManager";
+
+export type ArrowType = {
+  id?: string;
+  x: number;
+  y: number;
+  direction: number;
+  playerName?: string;
+};
+
+export type PoopType = {
+  id?: string;
+  x: number;
+  y: number;
+  playerName: string;
+};
+
+type SoundType =
+  | Phaser.Sound.BaseSoundManager
+  | Phaser.Sound.NoAudioSoundManager
+  | Phaser.Sound.HTML5AudioSoundManager
+  | Phaser.Sound.WebAudioSoundManager
+  | undefined;
 
 export class Player extends Phaser.Physics.Arcade.Sprite {
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private spaceKey?: Phaser.Input.Keyboard.Key;
   private xKey?: Phaser.Input.Keyboard.Key;
   private poopKey?: Phaser.Input.Keyboard.Key;
+  private poopCollectKey?: Phaser.Input.Keyboard.Key;
   private jumpCount: number = 0;
   private maxJumps: number = 2; // Allow double jump
   private isDead: boolean = false;
@@ -12,31 +38,18 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private nameText: Phaser.GameObjects.Text | null = null;
   private canShoot: boolean = true;
   private shootCooldown: number = 500; // milliseconds between shots
-  private onShootCallback?: (arrow: {
-    x: number;
-    y: number;
-    direction: number;
-  }) => void;
-  private onPoopCallback?: (poop: { x: number; y: number }) => void;
-  sound:
-    | Phaser.Sound.BaseSoundManager
-    | Phaser.Sound.NoAudioSoundManager
-    | Phaser.Sound.HTML5AudioSoundManager
-    | Phaser.Sound.WebAudioSoundManager
-    | undefined;
-  private mobileControlStates?: {
-    left: boolean;
-    right: boolean;
-    jump: boolean;
-    shoot: boolean;
-    poop: boolean;
-  };
+  private onShootCallback?: (arrow: ArrowType) => void;
+  private onPoopCallback?: (poop: PoopType) => void;
+  private onPoopCollectedCallback?: (poop: Poop) => void;
+  sound: SoundType;
+  private mobileControlStates?: typeof CONTROL_STATES;
   private lastJumpState: boolean = false;
   private lastShootState: boolean = false;
   private lastPoopState: boolean = false;
   private canPoop: boolean = true;
   private poopCooldown: number = 3000; // milliseconds between poops
   private isPooping: boolean = false;
+  private poopsCollected: number = 0;
 
   // Static method to preload assets
   static preload(scene: Phaser.Scene) {
@@ -53,12 +66,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     x: number,
     y: number,
     playerName: string = "",
-    sound?:
-      | Phaser.Sound.BaseSoundManager
-      | Phaser.Sound.NoAudioSoundManager
-      | Phaser.Sound.HTML5AudioSoundManager
-      | Phaser.Sound.WebAudioSoundManager
-      | undefined
+    sound?: SoundType
   ) {
     super(scene, x, y, "steve");
 
@@ -86,6 +94,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.xKey = scene.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.X);
     this.poopKey = scene.input.keyboard?.addKey(
       Phaser.Input.Keyboard.KeyCodes.K
+    );
+    this.poopCollectKey = scene.input.keyboard?.addKey(
+      Phaser.Input.Keyboard.KeyCodes.C
     );
 
     // Create name text above player
@@ -154,23 +165,19 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
-  public onShoot(
-    callback: (arrow: { x: number; y: number; direction: number }) => void
-  ) {
+  public onShoot(callback: (arrow: ArrowType) => void) {
     this.onShootCallback = callback;
   }
 
-  public onPoop(callback: (poop: { x: number; y: number }) => void) {
+  public onPoop(callback: (poop: PoopType) => void) {
     this.onPoopCallback = callback;
   }
 
-  public setMobileControlStates(controlStates: {
-    left: boolean;
-    right: boolean;
-    jump: boolean;
-    shoot: boolean;
-    poop: boolean;
-  }) {
+  public onPoopCollected(callback: (poop: Poop) => void) {
+    this.onPoopCollectedCallback = callback;
+  }
+
+  public setMobileControlStates(controlStates: typeof CONTROL_STATES) {
     this.mobileControlStates = controlStates;
   }
 
@@ -207,6 +214,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const poop = {
       x: this.x,
       y: this.y + 20, // Below the player
+      playerName: this.playerName,
     };
 
     // Call the callback to let GameScene create the poop
@@ -221,6 +229,29 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.scene.time.delayedCall(this.poopCooldown, () => {
       this.canPoop = true;
     });
+  }
+
+  public collectPoop() {
+    const poops = this.scene.children
+      .getAll()
+      .filter((child) => child instanceof Poop) as Poop[];
+
+    if (poops.length === 0) return;
+    const poop = CollisionManager.isPlayerTouchingAnyPoop(
+      this,
+      poops
+    ) as Poop | null;
+    if (poop) {
+      this.onPoopCollectedCallback?.(poop);
+    }
+  }
+
+  public getPoopsCollected(): number {
+    return this.poopsCollected;
+  }
+
+  public increasePoopsCollected(): void {
+    this.poopsCollected++;
   }
 
   update() {
@@ -246,6 +277,13 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       this.cursors.left?.isDown || this.mobileControlStates?.left;
     const isRightPressed =
       this.cursors.right?.isDown || this.mobileControlStates?.right;
+
+    const isCollectPressed =
+      this.poopCollectKey?.isDown || this.mobileControlStates?.collect;
+
+    if (isCollectPressed) {
+      this.collectPoop();
+    }
 
     if (isLeftPressed) {
       this.setVelocityX(-speed);

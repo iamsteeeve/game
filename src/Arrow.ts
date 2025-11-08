@@ -3,10 +3,11 @@ import Phaser from "phaser";
 export class Arrow extends Phaser.Physics.Arcade.Sprite {
   private maxDistance: number;
   private startX: number;
+  private direction: number;
 
   constructor(scene: Phaser.Scene, x: number, y: number, direction: number) {
     super(scene, x, y, "arrow");
-
+    this.direction = direction;
     scene.add.existing(this);
     scene.physics.add.existing(this);
 
@@ -38,6 +39,10 @@ export class Arrow extends Phaser.Physics.Arcade.Sprite {
     if (this.x < 0 || this.x > this.scene.physics.world.bounds.width) {
       this.destroy();
     }
+  }
+
+  public getDirection(): number {
+    return this.direction;
   }
 
   static preload(scene: Phaser.Scene) {

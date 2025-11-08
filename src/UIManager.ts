@@ -1,8 +1,11 @@
 import Phaser from "phaser";
+import { CONTROL_STATES } from "./constants";
 
 export class UIManager {
   private scene: Phaser.Scene;
   private heartTexts: Phaser.GameObjects.Text[] = [];
+  private distanceText: Phaser.GameObjects.Text | null = null;
+  private poopsCollectedText: Phaser.GameObjects.Text | null = null;
   private nameText: Phaser.GameObjects.Text | null = null;
   private playerName: string = "";
   private mobileControls: {
@@ -14,13 +17,7 @@ export class UIManager {
   } = {};
 
   // Control states for external access
-  public controlStates = {
-    left: false,
-    right: false,
-    jump: false,
-    shoot: false,
-    poop: false,
-  };
+  public controlStates = CONTROL_STATES;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -123,27 +120,33 @@ export class UIManager {
    * Create the main game UI (instructions and hearts)
    */
   createGameUI(maxLives: number = 3) {
-    const text = this.scene.add.text(
-      10,
-      10,
-      "Use Arrow Keys & Spacebar to move, X to shoot!",
-      {
-        fontSize: "20px",
-        color: "#ffffff",
-      }
-    );
-    text.setScrollFactor(0);
-
     // Create hearts for lives
     this.heartTexts = [];
     for (let i = 0; i < maxLives; i++) {
-      const heart = this.scene.add.text(10 + i * 35, 40, "❤️", {
+      const heart = this.scene.add.text(10 + i * 35, 10, "❤️", {
         fontSize: "24px",
       });
       heart.setScrollFactor(0);
       this.heartTexts.push(heart);
     }
     this.createMobileControls();
+    this.distanceText = this.scene.add.text(
+      this.scene.cameras.main.width - 10,
+      10,
+      "Distance: 0m",
+      {
+        fontSize: "20px",
+        color: "#ffffff",
+      }
+    );
+    this.distanceText.setOrigin(1, 0);
+    this.distanceText.setScrollFactor(0);
+    this.poopsCollectedText = this.scene.add.text(10, 40, "💩 0", {
+      fontSize: "20px",
+      color: "#4b2f2fff",
+    });
+    this.poopsCollectedText.setOrigin(0, 0);
+    this.poopsCollectedText.setScrollFactor(0);
   }
 
   private createMobileControls() {
@@ -355,6 +358,18 @@ export class UIManager {
   updateLives(livesRemaining: number) {
     if (livesRemaining >= 0 && livesRemaining < this.heartTexts.length) {
       this.heartTexts[livesRemaining].setAlpha(0.3);
+    }
+  }
+
+  updateDistance(distance: number) {
+    if (this.distanceText) {
+      this.distanceText.setText(`Distance: ${Math.floor(distance)}m`);
+    }
+  }
+
+  updatePoopsCollected(count: number) {
+    if (this.poopsCollectedText) {
+      this.poopsCollectedText.setText(`💩 ${count}`);
     }
   }
 

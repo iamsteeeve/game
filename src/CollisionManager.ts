@@ -116,4 +116,21 @@ export class CollisionManager {
 
     return !hasLava;
   }
+
+  static isPlayerTouchingAnyPoop(
+    player: Phaser.Physics.Arcade.Sprite,
+    poops: Phaser.Physics.Arcade.Sprite[]
+  ): Phaser.Physics.Arcade.Sprite | null {
+    const playerBounds = player.getBounds();
+
+    for (const poop of poops) {
+      const poopBounds = poop.getBounds();
+      if (
+        Phaser.Geom.Intersects.RectangleToRectangle(playerBounds, poopBounds)
+      ) {
+        return poop;
+      }
+    }
+    return null;
+  }
 }

@@ -1,4 +1,7 @@
 import { io, Socket } from "socket.io-client";
+import { Poop } from "./Poop";
+import { Arrow } from "./Arrow";
+import { PoopType } from "./Player";
 
 export interface RemotePlayerData {
   id: string;
@@ -164,21 +167,22 @@ export class NetworkManager {
     }
   }
 
-  sendShoot(x: number, y: number, direction: number) {
+  sendShoot(arrow: Arrow) {
     if (this.socket && this.socket.connected) {
       this.socket.emit("playerShoot", {
-        x,
-        y,
-        direction,
+        x: arrow.x,
+        y: arrow.y,
+        direction: arrow.getDirection(),
       });
     }
   }
 
-  sendPoop(x: number, y: number) {
+  sendPoop(poop: Poop) {
     if (this.socket && this.socket.connected) {
       this.socket.emit("playerPoop", {
-        x,
-        y,
+        x: poop.x,
+        y: poop.y,
+        playerName: poop.getPlayerName(),
       });
     }
   }
@@ -221,7 +225,7 @@ export class NetworkManager {
     }
   }
 
-  onPlayerPoop(callback: (data: PoopData) => void): void {
+  onPlayerPoop(callback: (data: PoopType) => void): void {
     if (this.socket) {
       this.socket.on("playerPoop", callback);
     }
