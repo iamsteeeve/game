@@ -1,7 +1,6 @@
 import { io, Socket } from "socket.io-client";
 import { Poop } from "./Poop";
 import { Arrow } from "./Arrow";
-import { PoopType } from "./Player";
 
 export interface RemotePlayerData {
   id: string;
@@ -14,6 +13,8 @@ export interface RemotePlayerData {
   lives: number;
   isDead: boolean;
   isPooping?: boolean;
+  health?: number;
+  isImmune?: boolean;
 }
 
 export interface WorldStateData {
@@ -28,41 +29,9 @@ export interface ChestCollectionData {
   y: number;
 }
 
-export interface ShootData {
-  id: string;
-  x: number;
-  y: number;
-  direction: number;
-}
-
-export interface PoopData {
-  id: string;
-  x: number;
-  y: number;
-}
-
 export class NetworkManager {
   private socket: Socket;
   private connected: boolean = false;
-
-  // Callback handlers
-  private onWorldStateCallback?: (worldState: WorldStateData) => void;
-  private onPlayersUpdateCallback?: (players: RemotePlayerData[]) => void;
-  private onPlayerJoinedCallback?: (player: RemotePlayerData) => void;
-  private onPlayerMovedCallback?: (player: RemotePlayerData) => void;
-  private onPlayerLeftCallback?: (playerId: string) => void;
-  private onPlayerDiedCallback?: (data: {
-    id: string;
-    lives: number;
-    isDead: boolean;
-  }) => void;
-  private onPlayerRespawnedCallback?: (data: {
-    id: string;
-    x: number;
-    y: number;
-    lives: number;
-  }) => void;
-  private onChestCollectedCallback?: (data: ChestCollectionData) => void;
 
   constructor(serverUrl?: string) {
     // Use provided URL, environment variable, or default to current host
@@ -99,34 +68,28 @@ export class NetworkManager {
 
     this.socket.on("worldState", (worldState: WorldStateData) => {
       console.log("🌍 Received world state:", worldState);
-      this.onWorldStateCallback?.(worldState);
     });
 
     this.socket.on("currentPlayers", (players: RemotePlayerData[]) => {
       console.log(`👥 Received ${players.length} existing players`);
-      this.onPlayersUpdateCallback?.(players);
     });
 
     this.socket.on("playerJoined", (player: RemotePlayerData) => {
       console.log("👤 Player joined:", player.name);
-      this.onPlayerJoinedCallback?.(player);
     });
 
-    this.socket.on("playerMoved", (player: RemotePlayerData) => {
-      //console.log("🚶 Player moved:", player.name);
-      this.onPlayerMovedCallback?.(player);
+    this.socket.on("playerMoved", () => {
+      // Silent - too frequent to log
     });
 
     this.socket.on("playerLeft", (playerId: string) => {
       console.log("👋 Player left:", playerId);
-      this.onPlayerLeftCallback?.(playerId);
     });
 
     this.socket.on(
       "playerDied",
       (data: { id: string; lives: number; isDead: boolean }) => {
         console.log(`💀 Player ${data.id} died. Lives: ${data.lives}`);
-        this.onPlayerDiedCallback?.(data);
       }
     );
 
@@ -134,7 +97,6 @@ export class NetworkManager {
       "playerRespawned",
       (data: { id: string; x: number; y: number; lives: number }) => {
         console.log(`✨ Player ${data.id} respawned at (${data.x}, ${data.y})`);
-        this.onPlayerRespawnedCallback?.(data);
       }
     );
 
@@ -142,7 +104,6 @@ export class NetworkManager {
       console.log(
         `📦 Chest collected by ${data.playerId} at (${data.x}, ${data.y})`
       );
-      this.onChestCollectedCallback?.(data);
     });
   }
 
@@ -163,6 +124,7 @@ export class NetworkManager {
 
   sendPlayerUpdate(data: Partial<RemotePlayerData>) {
     if (this.connected) {
+      //console.log("🚀 Sending player update:", data.health);
       this.socket.emit("playerMove", data);
     }
   }
@@ -180,9 +142,40 @@ export class NetworkManager {
   sendPoop(poop: Poop) {
     if (this.socket && this.socket.connected) {
       this.socket.emit("playerPoop", {
+        id: poop.getPoopId(),
         x: poop.x,
         y: poop.y,
         playerName: poop.getPlayerName(),
+      });
+    }
+  }
+
+  sendPoopCollection(poopId: string) {
+    if (this.socket && this.socket.connected) {
+      console.log(`💩 Sending poop collection: ${poopId}`);
+      this.socket.emit("poopCollected", { poopId });
+    }
+  }
+
+  sendThrowPoop(thrownPoop: {
+    x: number;
+    y: number;
+    velocityX: number;
+    velocityY: number;
+    playerName: string;
+    maxDistance: number;
+  }) {
+    if (this.socket && this.socket.connected) {
+      console.log(
+        `💩 Sending throw poop at (${thrownPoop.x}, ${thrownPoop.y})`
+      );
+      this.socket.emit("throwPoop", {
+        x: thrownPoop.x,
+        y: thrownPoop.y,
+        velocityX: thrownPoop.velocityX,
+        velocityY: thrownPoop.velocityY,
+        playerName: thrownPoop.playerName,
+        maxDistance: thrownPoop.maxDistance,
       });
     }
   }
@@ -202,58 +195,13 @@ export class NetworkManager {
     this.socket.emit("chestCollected", { chestId, x, y });
   }
 
-  // Callback registration methods
-  onWorldState(callback: (worldState: WorldStateData) => void) {
-    this.onWorldStateCallback = callback;
+  // Direct access to socket for event listeners
+  on<T>(event: string, callback: (data: T) => void): void {
+    this.socket.on(event, callback);
   }
 
-  onCurrentPlayers(callback: (players: RemotePlayerData[]) => void) {
-    this.onPlayersUpdateCallback = callback;
-  }
-
-  onNewPlayer(callback: (player: RemotePlayerData) => void) {
-    this.onPlayerJoinedCallback = callback;
-  }
-
-  onPlayerUpdate(callback: (player: RemotePlayerData) => void) {
-    this.onPlayerMovedCallback = callback;
-  }
-
-  onPlayerShoot(callback: (data: ShootData) => void): void {
-    if (this.socket) {
-      this.socket.on("playerShoot", callback);
-    }
-  }
-
-  onPlayerPoop(callback: (data: PoopType) => void): void {
-    if (this.socket) {
-      this.socket.on("playerPoop", callback);
-    }
-  }
-
-  onPlayerDisconnect(callback: (playerId: string) => void) {
-    this.onPlayerLeftCallback = callback;
-  }
-
-  onPlayerDeath(
-    callback: (data: { id: string; lives: number; isDead: boolean }) => void
-  ) {
-    this.onPlayerDiedCallback = callback;
-  }
-
-  onPlayerRespawn(
-    callback: (data: {
-      id: string;
-      x: number;
-      y: number;
-      lives: number;
-    }) => void
-  ) {
-    this.onPlayerRespawnedCallback = callback;
-  }
-
-  onChestCollected(callback: (data: ChestCollectionData) => void) {
-    this.onChestCollectedCallback = callback;
+  off(event: string, callback?: (...args: any[]) => void): void {
+    this.socket.off(event, callback);
   }
 
   // Disconnect

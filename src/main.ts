@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { ArrowType, Player, PoopType } from "./Player";
+import { ArrowType, Player, PoopType, ThrownPoopType } from "./Player";
 import { CollisionManager } from "./CollisionManager";
 import { WorldGenerator } from "./WorldGenerator";
 import { UIManager } from "./UIManager";
@@ -33,6 +33,7 @@ class GameScene extends Phaser.Scene {
   private playerNameForStart: string = "";
   private arrows!: Phaser.GameObjects.Group;
   private poops!: Phaser.GameObjects.Group;
+  private poopsMap: Map<string, Poop> = new Map();
 
   constructor() {
     super({ key: "GameScene" });
@@ -46,7 +47,6 @@ class GameScene extends Phaser.Scene {
     this.load.image("dirt", "assets/dirt.png");
     this.load.image("chest", "assets/chest.png");
     this.load.image("lava", "assets/lava.png");
-    //this.load.image("arrow", "assets/arrow.png");
     this.load.image("tombstone", "assets/tombstone.png");
     this.load.image("steve-poop", "assets/steve-poop.png");
 
@@ -78,11 +78,12 @@ class GameScene extends Phaser.Scene {
   private startGame() {
     this.createBackground();
     this.setupWorld();
-    this.createPhysicsGroups();
+    this.physicsGroups = new PhysicsGroupManager(this);
     this.generateInitialWorld();
     this.createPlayer(this.playerNameForStart);
-    this.setupCamera();
-    this.createUI();
+    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+    this.cameras.main.setBounds(0, 0, WORLD_WIDTH, this.cameras.main.height);
+    this.uiManager.createGameUI(this.lives);
     this.physics.resume();
   }
 
@@ -118,10 +119,6 @@ class GameScene extends Phaser.Scene {
     );
   }
 
-  private createPhysicsGroups() {
-    this.physicsGroups = new PhysicsGroupManager(this);
-  }
-
   private generateInitialWorld() {
     // Pass player spawn X position (200) as safe zone for initial generation
     this.worldGenerator.generateGround(
@@ -143,6 +140,33 @@ class GameScene extends Phaser.Scene {
     );
   }
 
+  private setupArrowCollisions(arrow: Arrow) {
+    // Add collisions with terrain
+    this.physics.add.collider(arrow, this.physicsGroups.ground, () => {
+      arrow.destroy();
+    });
+    this.physics.add.collider(arrow, this.physicsGroups.dirt, () => {
+      arrow.destroy();
+    });
+
+    // Add collision with main player
+    this.physics.add.overlap(arrow, this.player, () => {
+      const damaged = this.player.takeDamageWithImmunity(10);
+      if (damaged) {
+        this.sound.play("playerHit");
+      }
+      arrow.destroy();
+    });
+
+    // Add collision with remote players
+    this.remotePlayers.forEach((remotePlayer) => {
+      this.physics.add.overlap(arrow, remotePlayer, () => {
+        this.sound.play("playerHit");
+        arrow.destroy();
+      });
+    });
+  }
+
   private createPlayer(playerName: string) {
     this.player = new Player(
       this,
@@ -153,15 +177,16 @@ class GameScene extends Phaser.Scene {
     );
     this.physics.add.collider(this.player, this.physicsGroups.ground);
     this.physics.add.collider(this.player, this.physicsGroups.chests);
+    this.physics.add.collider(this.player, this.physicsGroups.lava);
 
     // Create arrows group
     this.arrows = this.add.group({
       runChildUpdate: true,
     });
 
-    // Create poops group
+    // Create poops group (needs update for thrown poops distance tracking)
     this.poops = this.add.group({
-      runChildUpdate: false,
+      runChildUpdate: true,
     });
 
     // Setup arrow shooting
@@ -174,30 +199,7 @@ class GameScene extends Phaser.Scene {
       );
       this.arrows.add(arrow);
       this.networkManager.sendShoot(arrow);
-
-      // Add collisions for arrows
-      this.physics.add.collider(arrow, this.physicsGroups.ground, () => {
-        arrow.destroy();
-      });
-      this.physics.add.collider(arrow, this.physicsGroups.dirt, () => {
-        arrow.destroy();
-      });
-
-      // Add collision with main player
-      this.physics.add.overlap(arrow, this.player, () => {
-        this.sound.play("playerHit");
-        arrow.destroy();
-        // Optional: Add damage logic here
-      });
-
-      // Add collision with remote players
-      this.remotePlayers.forEach((remotePlayer) => {
-        this.physics.add.overlap(arrow, remotePlayer, () => {
-          this.sound.play("playerHit");
-          arrow.destroy();
-          // Optional: Send hit event to server
-        });
-      });
+      this.setupArrowCollisions(arrow);
     });
 
     // Setup poop dropping
@@ -209,6 +211,7 @@ class GameScene extends Phaser.Scene {
         this.player.getPlayerName()
       );
       this.poops.add(poop);
+      this.poopsMap.set(poop.getPoopId(), poop);
 
       // Send poop event to server
       this.networkManager.sendPoop(poop);
@@ -220,29 +223,32 @@ class GameScene extends Phaser.Scene {
 
     this.player.onPoopCollected((poop: Poop) => {
       this.player.increasePoopsCollected();
-      this.poops.remove(poop, true, true);
       this.uiManager.updatePoopsCollected(this.player.getPoopsCollected());
-      poop.destroy();
+
+      // Send poop collection to server
+      this.networkManager.sendPoopCollection(poop.getPoopId());
+
+      // Remove poop locally
+      this.removePoopById(poop.getPoopId());
+    });
+
+    this.player.onThrowPoop((thrownPoopData) => {
+      this.uiManager.updatePoopsCollected(this.player.getPoopsCollected());
+      this.createThrownPoop(thrownPoopData);
+
+      // Send throw poop event to server
+      this.networkManager.sendThrowPoop(thrownPoopData);
     });
 
     // Set initial safe position
     this.lastSafePosition = { x: 200, y: this.groundY - 59 / 2 };
   }
 
-  private setupCamera() {
-    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
-    this.cameras.main.setBounds(0, 0, WORLD_WIDTH, this.cameras.main.height);
-  }
-
-  private createUI() {
-    this.uiManager.createGameUI(this.lives);
-  }
-
   private setupMultiplayer(playerName: string) {
     this.networkManager = new NetworkManager();
 
     // Handle world state - this comes first before anything else
-    this.networkManager.onWorldState((worldState) => {
+    this.networkManager.on("worldState", (worldState: { seed: number }) => {
       console.log("✅ Received world state with seed:", worldState.seed);
       this.worldSeed = worldState.seed;
 
@@ -254,19 +260,19 @@ class GameScene extends Phaser.Scene {
     });
 
     // Handle existing players
-    this.networkManager.onCurrentPlayers((players) => {
+    this.networkManager.on("currentPlayers", (players: RemotePlayerData[]) => {
       players.forEach((playerData) => {
         this.addRemotePlayer(playerData);
       });
     });
 
     // Handle new player joining
-    this.networkManager.onNewPlayer((playerData) => {
+    this.networkManager.on("playerJoined", (playerData: RemotePlayerData) => {
       this.addRemotePlayer(playerData);
     });
 
     // Handle player movement updates
-    this.networkManager.onPlayerUpdate((playerData) => {
+    this.networkManager.on("playerMoved", (playerData: RemotePlayerData) => {
       // Don't update our own player from network events
       if (playerData.id !== this.networkManager.getSocketId()) {
         this.updateRemotePlayer(playerData);
@@ -274,7 +280,7 @@ class GameScene extends Phaser.Scene {
     });
 
     // Handle player shoot events
-    this.networkManager.onPlayerShoot((data) => {
+    this.networkManager.on("playerShoot", (data: ArrowType) => {
       // Don't create arrows for our own shots (we already handle them locally)
       if (data.id !== this.networkManager.getSocketId()) {
         this.createRemotePlayerArrow(data);
@@ -282,36 +288,69 @@ class GameScene extends Phaser.Scene {
     });
 
     // Handle player poop events
-    this.networkManager.onPlayerPoop((data: PoopType) => {
-      // Don't create poops for our own poops (we already handle them locally)
-      if (data.id !== this.networkManager.getSocketId()) {
+    this.networkManager.on(
+      "playerPoop",
+      (data: { id: string; x: number; y: number; playerName?: string }) => {
         this.createRemotePlayerPoop(data);
       }
+    );
+
+    // Handle poop collection events
+    this.networkManager.on("poopCollected", (data: { poopId: string }) => {
+      console.log(`💩 Poop collected by someone: ${data.poopId}`);
+      this.removePoopById(data.poopId);
     });
 
+    // Handle thrown poop events
+    this.networkManager.on(
+      "throwPoop",
+      (data: {
+        id: string;
+        x: number;
+        y: number;
+        velocityX: number;
+        velocityY: number;
+        playerName?: string;
+        maxDistance: number;
+      }) => {
+        console.log(`💩 Someone threw poop: ${data.id}`);
+        this.createThrownPoop({
+          x: data.x,
+          y: data.y,
+          velocityX: data.velocityX,
+          velocityY: data.velocityY,
+          playerName: data.playerName || "Unknown",
+          maxDistance: data.maxDistance,
+        });
+      }
+    );
+
     // Handle player disconnecting
-    this.networkManager.onPlayerDisconnect((playerId) => {
+    this.networkManager.on("playerLeft", (playerId: string) => {
       this.removeRemotePlayer(playerId);
     });
 
     // Handle player death
-    this.networkManager.onPlayerDeath((data) => {
-      const remotePlayer = this.remotePlayers.get(data.id);
-      if (remotePlayer && data.isDead) {
-        remotePlayer.markAsDead();
+    this.networkManager.on(
+      "playerDied",
+      (data: { id: string; lives: number; isDead: boolean }) => {
+        const remotePlayer = this.remotePlayers.get(data.id);
+        if (remotePlayer && data.isDead) {
+          remotePlayer.markAsDead();
+        }
       }
-    });
+    );
 
     // Handle player respawn
-    this.networkManager.onPlayerRespawn((data) => {
-      const remotePlayer = this.remotePlayers.get(data.id);
-      if (remotePlayer) {
-        remotePlayer.setPosition(data.x, data.y);
-        // TODO: Reset death state if needed
+    this.networkManager.on(
+      "playerRespawned",
+      (data: { id: string; x: number; y: number; lives: number }) => {
+        const remotePlayer = this.remotePlayers.get(data.id);
+        if (remotePlayer) {
+          remotePlayer.setPosition(data.x, data.y);
+        }
       }
-    });
-
-    // Note: We don't join the game here anymore - we wait for world state first
+    );
   }
 
   private addRemotePlayer(playerData: RemotePlayerData) {
@@ -325,6 +364,11 @@ class GameScene extends Phaser.Scene {
       playerData.y,
       playerData.name
     );
+
+    // Set initial health if provided
+    if (playerData.health !== undefined) {
+      remotePlayer.setHealth(playerData.health);
+    }
 
     // Disable physics for remote players - they're position-synced only
     if (remotePlayer.body) {
@@ -342,59 +386,101 @@ class GameScene extends Phaser.Scene {
     const arrow = new Arrow(this, data.x, data.y, data.direction);
     console.log("🏹 Created remote player arrow", data.id);
     this.arrows.add(arrow);
-
-    // Add collisions for remote arrows
-    this.physics.add.collider(arrow, this.physicsGroups.ground, () => {
-      arrow.destroy();
-    });
-    this.physics.add.collider(arrow, this.physicsGroups.dirt, () => {
-      arrow.destroy();
-    });
-
-    // Add collision with main player
-    this.physics.add.overlap(arrow, this.player, () => {
-      this.sound.play("playerHit");
-      arrow.destroy();
-      // Optional: Add damage logic here
-    });
-
-    // Add collision with remote players
-    this.remotePlayers.forEach((remotePlayer) => {
-      this.physics.add.overlap(arrow, remotePlayer, () => {
-        this.sound.play("playerHit");
-        arrow.destroy();
-      });
-    });
+    this.setupArrowCollisions(arrow);
   }
 
-  private createRemotePlayerPoop(data: PoopType) {
-    const poop = new Poop(this, data.x, data.y, data.playerName);
+  private createRemotePlayerPoop(data: {
+    id: string;
+    x: number;
+    y: number;
+    playerName?: string;
+  }) {
+    const poop = new Poop(
+      this,
+      data.x,
+      data.y,
+      data.playerName || "Unknown",
+      data.id
+    );
     this.poops.add(poop);
+    this.poopsMap.set(poop.getPoopId(), poop);
 
     // Add collisions for remote poops
     this.physics.add.collider(poop, this.physicsGroups.ground);
     this.physics.add.collider(poop, this.physicsGroups.dirt);
   }
 
+  private createThrownPoop(data: ThrownPoopType) {
+    const poop = new Poop(
+      this,
+      data.x,
+      data.y,
+      data.playerName,
+      undefined,
+      true,
+      data.maxDistance
+    );
+    this.poops.add(poop);
+    this.poopsMap.set(poop.getPoopId(), poop);
+
+    // Set the velocity for the thrown poop
+    const body = poop.body as Phaser.Physics.Arcade.Body;
+    body.setVelocity(data.velocityX, data.velocityY);
+
+    // Add collisions
+    this.physics.add.collider(poop, this.physicsGroups.ground);
+    this.physics.add.collider(poop, this.physicsGroups.dirt);
+
+    // Add collision with main player
+    this.physics.add.overlap(poop, this.player, () => {
+      const damaged = this.player.takeDamageWithImmunity(10);
+      if (damaged) {
+        this.sound.play("playerHit");
+      }
+      poop.destroy();
+    });
+
+    // Add collision with remote players
+    this.remotePlayers.forEach((remotePlayer) => {
+      this.physics.add.overlap(poop, remotePlayer, () => {
+        this.sound.play("playerHit");
+        poop.destroy();
+      });
+    });
+
+    console.log(
+      `💩 Created thrown poop with velocity (${data.velocityX}, ${data.velocityY})`
+    );
+  }
+
+  private removePoopById(poopId: string) {
+    const poop = this.poopsMap.get(poopId);
+    if (poop) {
+      this.poops.remove(poop, true, true);
+      this.poopsMap.delete(poopId);
+      poop.destroy();
+      console.log(`💩 Removed poop: ${poopId}`);
+    }
+  }
+
   private updateRemotePlayer(playerData: RemotePlayerData) {
     const remotePlayer = this.remotePlayers.get(playerData.id);
     if (remotePlayer) {
-      // Directly update position for remote players
       remotePlayer.setPosition(playerData.x, playerData.y);
 
-      // Update pooping state
       if (playerData.isPooping !== undefined) {
         remotePlayer.setIsPooping(playerData.isPooping);
       }
 
-      // Optional: You can add smooth interpolation if needed
-      // this.tweens.add({
-      //   targets: remotePlayer,
-      //   x: playerData.x,
-      //   y: playerData.y,
-      //   duration: 50,
-      //   ease: "Linear",
-      // });
+      // Update health if provided
+      if (playerData.health !== undefined) {
+        remotePlayer.setHealth(playerData.health);
+      }
+
+      // Update immunity visual state
+      if (playerData.isImmune !== undefined) {
+        remotePlayer.setImmuneVisual(playerData.isImmune);
+      }
     }
   }
 
@@ -425,8 +511,7 @@ class GameScene extends Phaser.Scene {
     if (
       this.networkManager &&
       this.networkManager.isConnected() &&
-      this.game.getFrame() % 3 === 0 /*  &&
-      (this.player.body?.velocity.x || this.player.body?.velocity.y) */
+      this.game.getFrame() % 3 === 0
     ) {
       this.networkManager.sendPlayerUpdate({
         name: this.player.getPlayerName(),
@@ -438,6 +523,8 @@ class GameScene extends Phaser.Scene {
         lives: this.lives,
         isDead: this.lives <= 0,
         isPooping: this.player.getIsPooping(),
+        health: this.player.getHealth(),
+        isImmune: this.player.getIsImmune(),
       });
     }
 
@@ -486,21 +573,31 @@ class GameScene extends Phaser.Scene {
   }
 
   private handleLavaDeath() {
-    if (this.lives > 0) {
-      this.lives--;
-      console.log(`Player hit lava! Lives remaining: ${this.lives}`);
+    // Try to apply damage (returns false if player is immune)
+    const damageApplied = this.player.takeDamageWithImmunity(25);
 
-      // Update hearts display
-      this.uiManager.updateLives(this.lives);
+    if (damageApplied) {
+      console.log(`Player hit lava! Health: ${this.player.getHealth()}`);
 
-      if (this.lives > 0) {
-        // Respawn from sky
-        this.respawnPlayer();
-      } else if (this.player.getIsDead() === false) {
-        // Mark player as dead
-        this.player.markAsDead();
-        this.networkManager.sendPlayerDeath(0);
-        this.sound.play("death");
+      // Play hit sound
+      this.sound.play("playerHit");
+
+      // Check if player died from the damage
+      if (this.player.getHealth() === 0) {
+        this.lives--;
+        console.log(`Player died! Lives remaining: ${this.lives}`);
+
+        // Update hearts display
+        this.uiManager.updateLives(this.lives);
+
+        if (this.lives > 0) {
+          // Respawn from sky and restore health
+          this.respawnPlayer();
+        } else {
+          // No lives left - permanent death
+          this.networkManager.sendPlayerDeath(0);
+          this.sound.play("death");
+        }
       }
     }
   }
@@ -508,6 +605,12 @@ class GameScene extends Phaser.Scene {
   private respawnPlayer() {
     this.isRespawning = true;
     this.sound.play("respawn");
+
+    // Revive the player (re-enable physics and restore sprite)
+    this.player.revive();
+
+    // Restore player health to full
+    this.player.setHealth(100);
 
     // Find a safe grass position to respawn to
     const safeX = this.findSafeRespawnPosition();

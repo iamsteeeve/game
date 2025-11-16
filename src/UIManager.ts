@@ -6,7 +6,6 @@ export class UIManager {
   private heartTexts: Phaser.GameObjects.Text[] = [];
   private distanceText: Phaser.GameObjects.Text | null = null;
   private poopsCollectedText: Phaser.GameObjects.Text | null = null;
-  private nameText: Phaser.GameObjects.Text | null = null;
   private playerName: string = "";
   private mobileControls: {
     leftBtn?: Phaser.GameObjects.Graphics;
@@ -14,6 +13,7 @@ export class UIManager {
     jumpBtn?: Phaser.GameObjects.Graphics;
     shootBtn?: Phaser.GameObjects.Graphics;
     poopBtn?: Phaser.GameObjects.Graphics;
+    collectBtn?: Phaser.GameObjects.Graphics;
   } = {};
 
   // Control states for external access
@@ -228,6 +228,25 @@ export class UIManager {
       },
       "#8B4513" // Brown color
     );
+
+    // Collect/Throw button (half size, positioned below poop button)
+    this.mobileControls.collectBtn = this.createControlButton(
+      width / 2 + buttonPadding + buttonSize,
+      height -
+        buttonSize -
+        bottomOffset -
+        poopButtonSize * 2 -
+        buttonPadding * 2,
+      poopButtonSize,
+      "C",
+      () => {
+        this.controlStates.collect = true;
+      },
+      () => {
+        this.controlStates.collect = false;
+      },
+      "#4CAF50" // Green color
+    );
   }
 
   private createControlButton(
@@ -317,42 +336,6 @@ export class UIManager {
   }
 
   /**
-   * Create player name text that follows the player
-   */
-  createPlayerNameText(
-    playerName: string,
-    x: number,
-    y: number
-  ): Phaser.GameObjects.Text {
-    this.nameText = this.scene.add.text(x, y, playerName, {
-      fontSize: "16px",
-      color: "#ffffff",
-      backgroundColor: "#000000",
-      padding: { x: 5, y: 2 },
-    });
-    this.nameText.setOrigin(0.5, 1);
-    return this.nameText;
-  }
-
-  /**
-   * Update player name text position
-   */
-  updatePlayerNamePosition(x: number, y: number) {
-    if (this.nameText) {
-      this.nameText.setPosition(x, y - 30);
-    }
-  }
-
-  /**
-   * Update player name text content
-   */
-  updatePlayerName(newName: string) {
-    if (this.nameText) {
-      this.nameText.setText(newName);
-    }
-  }
-
-  /**
    * Update hearts display based on lives remaining
    */
   updateLives(livesRemaining: number) {
@@ -373,42 +356,6 @@ export class UIManager {
     }
   }
 
-  /**
-   * Show game over screen and return a promise that resolves when restart is requested
-   */
-  showGameOver(): Promise<void> {
-    return new Promise((resolve) => {
-      this.scene.physics.pause();
-
-      const gameOverText = this.scene.add.text(
-        this.scene.cameras.main.centerX,
-        this.scene.cameras.main.centerY,
-        "GAME OVER\nPress R to Restart",
-        {
-          fontSize: "48px",
-          color: "#ff0000",
-          backgroundColor: "#000000",
-          padding: { x: 20, y: 20 },
-          align: "center",
-        }
-      );
-      gameOverText.setOrigin(0.5).setScrollFactor(0);
-
-      // Remove all existing keyboard listeners
-      this.scene.input.keyboard?.removeAllListeners();
-
-      // Add restart functionality
-      const restartHandler = (event: KeyboardEvent) => {
-        if (event.key === "r" || event.key === "R") {
-          this.scene.input.keyboard?.off("keydown", restartHandler);
-          resolve();
-        }
-      };
-
-      this.scene.input.keyboard?.on("keydown", restartHandler);
-    });
-  }
-
   destroyMobileControls() {
     Object.values(this.mobileControls).forEach((control) => {
       control?.destroy();
@@ -420,20 +367,7 @@ export class UIManager {
       jump: false,
       shoot: false,
       poop: false,
+      collect: false,
     };
-  }
-
-  /**
-   * Get the player name that was entered
-   */
-  getPlayerName(): string {
-    return this.playerName;
-  }
-
-  /**
-   * Reset player name (useful for restart)
-   */
-  resetPlayerName() {
-    this.playerName = "";
   }
 }
