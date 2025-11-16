@@ -30,6 +30,8 @@ interface PlayerData {
   lives: number;
   isDead: boolean;
   isPooping?: boolean;
+  health?: number;
+  isImmune?: boolean;
 }
 
 interface WorldState {
@@ -91,6 +93,8 @@ io.on("connection", (socket: Socket) => {
       if (data.lives !== undefined) player.lives = data.lives;
       if (data.isDead !== undefined) player.isDead = data.isDead;
       if (data.isPooping !== undefined) player.isPooping = data.isPooping;
+      if (data.health !== undefined) player.health = data.health;
+      if (data.isImmune !== undefined) player.isImmune = data.isImmune;
 
       // Broadcast to all other players
       socket.broadcast.emit("playerMoved", {
@@ -103,6 +107,8 @@ io.on("connection", (socket: Socket) => {
         lives: player.lives,
         isDead: player.isDead,
         isPooping: player.isPooping,
+        health: player.health,
+        isImmune: player.isImmune,
       });
     }
   });
@@ -159,19 +165,61 @@ io.on("connection", (socket: Socket) => {
     });
   });
 
-  socket.on("playerPoop", (data: { x: number; y: number }) => {
-    // Broadcast poop drop event to all other players
-    socket.broadcast.emit("playerPoop", {
-      id: socket.id,
-      x: data.x,
-      y: data.y,
+  socket.on(
+    "playerPoop",
+    (data: { id: string; x: number; y: number; playerName: string }) => {
+      // Broadcast poop drop event to all other players
+      socket.broadcast.emit("playerPoop", {
+        id: data.id,
+        x: data.x,
+        y: data.y,
+        playerName: data.playerName,
+      });
+
+      const player = players.get(socket.id);
+      console.log(
+        `Player ${player?.name} dropped poop at (${data.x}, ${data.y}) with id ${data.id}`
+      );
+    }
+  );
+
+  socket.on("poopCollected", (data: { poopId: string }) => {
+    // Broadcast poop collection to all players so they can remove it
+    io.emit("poopCollected", {
+      poopId: data.poopId,
     });
 
     const player = players.get(socket.id);
-    console.log(
-      `Player ${player?.name} dropped poop at (${data.x}, ${data.y})`
-    );
+    console.log(`Player ${player?.name} collected poop: ${data.poopId}`);
   });
+
+  socket.on(
+    "throwPoop",
+    (data: {
+      x: number;
+      y: number;
+      velocityX: number;
+      velocityY: number;
+      playerName: string;
+      maxDistance: number;
+    }) => {
+      // Broadcast thrown poop to all other players
+      socket.broadcast.emit("throwPoop", {
+        id: socket.id,
+        x: data.x,
+        y: data.y,
+        velocityX: data.velocityX,
+        velocityY: data.velocityY,
+        playerName: data.playerName,
+        maxDistance: data.maxDistance,
+      });
+
+      const player = players.get(socket.id);
+      console.log(
+        `Player ${player?.name} threw poop at (${data.x}, ${data.y}) with velocity (${data.velocityX}, ${data.velocityY}) maxDistance: ${data.maxDistance}`
+      );
+    }
+  );
 
   socket.on(
     "chestCollected",

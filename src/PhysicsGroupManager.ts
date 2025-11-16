@@ -22,32 +22,4 @@ export class PhysicsGroupManager {
     this.lava = this.scene.physics.add.staticGroup();
     this.chests = this.scene.physics.add.staticGroup();
   }
-
-  /**
-   * Get dirt group
-   */
-  getDirt(): Phaser.Physics.Arcade.StaticGroup {
-    return this.dirt;
-  }
-
-  /**
-   * Get ground group
-   */
-  getGround(): Phaser.Physics.Arcade.StaticGroup {
-    return this.ground;
-  }
-
-  /**
-   * Get lava group
-   */
-  getLava(): Phaser.Physics.Arcade.StaticGroup {
-    return this.lava;
-  }
-
-  /**
-   * Get chests group
-   */
-  getChests(): Phaser.Physics.Arcade.StaticGroup {
-    return this.chests;
-  }
 }

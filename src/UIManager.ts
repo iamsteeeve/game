@@ -1,9 +1,11 @@
 import Phaser from "phaser";
+import { CONTROL_STATES } from "./constants";
 
 export class UIManager {
   private scene: Phaser.Scene;
   private heartTexts: Phaser.GameObjects.Text[] = [];
-  private nameText: Phaser.GameObjects.Text | null = null;
+  private distanceText: Phaser.GameObjects.Text | null = null;
+  private poopsCollectedText: Phaser.GameObjects.Text | null = null;
   private playerName: string = "";
   private mobileControls: {
     leftBtn?: Phaser.GameObjects.Graphics;
@@ -11,16 +13,11 @@ export class UIManager {
     jumpBtn?: Phaser.GameObjects.Graphics;
     shootBtn?: Phaser.GameObjects.Graphics;
     poopBtn?: Phaser.GameObjects.Graphics;
+    collectBtn?: Phaser.GameObjects.Graphics;
   } = {};
 
   // Control states for external access
-  public controlStates = {
-    left: false,
-    right: false,
-    jump: false,
-    shoot: false,
-    poop: false,
-  };
+  public controlStates = CONTROL_STATES;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -123,27 +120,33 @@ export class UIManager {
    * Create the main game UI (instructions and hearts)
    */
   createGameUI(maxLives: number = 3) {
-    const text = this.scene.add.text(
-      10,
-      10,
-      "Use Arrow Keys & Spacebar to move, X to shoot!",
-      {
-        fontSize: "20px",
-        color: "#ffffff",
-      }
-    );
-    text.setScrollFactor(0);
-
     // Create hearts for lives
     this.heartTexts = [];
     for (let i = 0; i < maxLives; i++) {
-      const heart = this.scene.add.text(10 + i * 35, 40, "❤️", {
+      const heart = this.scene.add.text(10 + i * 35, 10, "❤️", {
         fontSize: "24px",
       });
       heart.setScrollFactor(0);
       this.heartTexts.push(heart);
     }
     this.createMobileControls();
+    this.distanceText = this.scene.add.text(
+      this.scene.cameras.main.width - 10,
+      10,
+      "Distance: 0m",
+      {
+        fontSize: "20px",
+        color: "#ffffff",
+      }
+    );
+    this.distanceText.setOrigin(1, 0);
+    this.distanceText.setScrollFactor(0);
+    this.poopsCollectedText = this.scene.add.text(10, 40, "💩 0", {
+      fontSize: "20px",
+      color: "#4b2f2fff",
+    });
+    this.poopsCollectedText.setOrigin(0, 0);
+    this.poopsCollectedText.setScrollFactor(0);
   }
 
   private createMobileControls() {
@@ -224,6 +227,25 @@ export class UIManager {
         this.controlStates.poop = false;
       },
       "#8B4513" // Brown color
+    );
+
+    // Collect/Throw button (half size, positioned below poop button)
+    this.mobileControls.collectBtn = this.createControlButton(
+      width / 2 + buttonPadding + buttonSize,
+      height -
+        buttonSize -
+        bottomOffset -
+        poopButtonSize * 2 -
+        buttonPadding * 2,
+      poopButtonSize,
+      "C",
+      () => {
+        this.controlStates.collect = true;
+      },
+      () => {
+        this.controlStates.collect = false;
+      },
+      "#4CAF50" // Green color
     );
   }
 
@@ -314,42 +336,6 @@ export class UIManager {
   }
 
   /**
-   * Create player name text that follows the player
-   */
-  createPlayerNameText(
-    playerName: string,
-    x: number,
-    y: number
-  ): Phaser.GameObjects.Text {
-    this.nameText = this.scene.add.text(x, y, playerName, {
-      fontSize: "16px",
-      color: "#ffffff",
-      backgroundColor: "#000000",
-      padding: { x: 5, y: 2 },
-    });
-    this.nameText.setOrigin(0.5, 1);
-    return this.nameText;
-  }
-
-  /**
-   * Update player name text position
-   */
-  updatePlayerNamePosition(x: number, y: number) {
-    if (this.nameText) {
-      this.nameText.setPosition(x, y - 30);
-    }
-  }
-
-  /**
-   * Update player name text content
-   */
-  updatePlayerName(newName: string) {
-    if (this.nameText) {
-      this.nameText.setText(newName);
-    }
-  }
-
-  /**
    * Update hearts display based on lives remaining
    */
   updateLives(livesRemaining: number) {
@@ -358,40 +344,16 @@ export class UIManager {
     }
   }
 
-  /**
-   * Show game over screen and return a promise that resolves when restart is requested
-   */
-  showGameOver(): Promise<void> {
-    return new Promise((resolve) => {
-      this.scene.physics.pause();
+  updateDistance(distance: number) {
+    if (this.distanceText) {
+      this.distanceText.setText(`Distance: ${Math.floor(distance)}m`);
+    }
+  }
 
-      const gameOverText = this.scene.add.text(
-        this.scene.cameras.main.centerX,
-        this.scene.cameras.main.centerY,
-        "GAME OVER\nPress R to Restart",
-        {
-          fontSize: "48px",
-          color: "#ff0000",
-          backgroundColor: "#000000",
-          padding: { x: 20, y: 20 },
-          align: "center",
-        }
-      );
-      gameOverText.setOrigin(0.5).setScrollFactor(0);
-
-      // Remove all existing keyboard listeners
-      this.scene.input.keyboard?.removeAllListeners();
-
-      // Add restart functionality
-      const restartHandler = (event: KeyboardEvent) => {
-        if (event.key === "r" || event.key === "R") {
-          this.scene.input.keyboard?.off("keydown", restartHandler);
-          resolve();
-        }
-      };
-
-      this.scene.input.keyboard?.on("keydown", restartHandler);
-    });
+  updatePoopsCollected(count: number) {
+    if (this.poopsCollectedText) {
+      this.poopsCollectedText.setText(`💩 ${count}`);
+    }
   }
 
   destroyMobileControls() {
@@ -405,20 +367,7 @@ export class UIManager {
       jump: false,
       shoot: false,
       poop: false,
+      collect: false,
     };
-  }
-
-  /**
-   * Get the player name that was entered
-   */
-  getPlayerName(): string {
-    return this.playerName;
-  }
-
-  /**
-   * Reset player name (useful for restart)
-   */
-  resetPlayerName() {
-    this.playerName = "";
   }
 }
